@@ -181,19 +181,6 @@ Table I summarizes the instruction encodings for all supported instructions, inc
 | Instruction | Type | Opcode (6:0) | funct3 (14:12) | funct7 (31:25) | Operation |
 |---|---|---|---|---|---|
 | **Base RV32I** | | | | | |
-| add | R | 0110011 | 000 | 0000000 | rd = rs1 + rs2 |
-| sub | R | 0110011 | 000 | 0100000 | rd = rs1 - rs2 |
-| and | R | 0110011 | 111 | 0000000 | rd = rs1 & rs2 |
-| or | R | 0110011 | 110 | 0000000 | rd = rs1 \| rs2 |
-| slt | R | 0110011 | 010 | 0000000 | rd = (rs1 < rs2) ? 1 : 0 |
-| addi | I | 0010011 | 000 | — | rd = rs1 + imm |
-| andi | I | 0010011 | 111 | — | rd = rs1 & imm |
-| ori | I | 0010011 | 110 | — | rd = rs1 \| imm |
-| slti | I | 0010011 | 010 | — | rd = (rs1 < imm) ? 1 : 0 |
-| lw | I | 0000011 | 010 | — | rd = mem[rs1 + imm] |
-| sw | S | 0100011 | 010 | — | mem[rs1 + imm] = rs2 |
-| beq | B | 1100011 | 000 | — | if (rs1 == rs2) PC += imm |
-| jal | J | 1101111 | — | — | rd = PC+4; PC += imm |
 | **M Extension** | | | | | |
 | mul | R | 0110011 | 000 | 0000001 | rd = (rs1 * rs2)[31:0] |
 | mulh | R | 0110011 | 001 | 0000001 | rd = (rs1 * rs2)[63:32] (signed x signed) |
