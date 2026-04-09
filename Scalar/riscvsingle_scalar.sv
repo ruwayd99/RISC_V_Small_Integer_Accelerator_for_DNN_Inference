@@ -82,13 +82,15 @@ module testbench();
 
   localparam int OUT_BASE  = 32'd192;
   localparam int OUT_WORDS = 16;
+  localparam int TILE_REPEATS = 4096;
 
   logic        clk;
   logic        reset;
   integer      cycle_count;
+  integer      tile_count;
+  integer      reset_count;
   logic [31:0] expected[0:OUT_WORDS-1];
   logic [OUT_WORDS-1:0] seen;
-  logic        finished;
 
   logic [31:0] WriteData, DataAdr;
   logic        MemWrite;
@@ -101,8 +103,9 @@ module testbench();
     begin
       integer i;
       cycle_count = 0;
+      tile_count = 0;
+      reset_count = 0;
       seen = '0;
-      finished = 0;
       // Dense 4x4 reference matrix (row-major):
       // [13,18,17,13,
       //  37,42,41,33,
@@ -133,9 +136,16 @@ module testbench();
       clk <= 1; # 5; clk <= 0; # 5;
     end
 
-  always @(posedge clk)
+  always @(posedge clk) begin
+    if (reset_count > 0) begin
+      reset_count <= reset_count - 1;
+      if (reset_count == 1)
+        reset <= 0;
+    end
+
     if (!reset)
       cycle_count <= cycle_count + 1;
+  end
 
   function automatic logic all_seen();
     integer i;
@@ -154,7 +164,7 @@ module testbench();
     end
   endtask
 
-  task automatic check_outputs();
+  task automatic verify_outputs();
     integer i;
     integer word_idx;
     begin
@@ -165,8 +175,6 @@ module testbench();
           $stop;
         end
       end
-      $display("Simulation succeeded in %0d cycles", cycle_count);
-      $stop;
     end
   endtask
 
@@ -181,13 +189,22 @@ module testbench();
         seen[idx] = 1'b1;
       end
 
-      if (!finished && all_seen()) begin
-        finished = 1'b1;
-        check_outputs();
+      if (!reset && all_seen()) begin
+        verify_outputs();
+        tile_count = tile_count + 1;
+
+        if (tile_count >= TILE_REPEATS) begin
+          $display("Simulation succeeded for %0d tiles (64x64-equivalent) in %0d cycles", TILE_REPEATS, cycle_count);
+          $stop;
+        end
+
+        seen = '0;
+        reset <= 1;
+        reset_count <= 2;
       end
 
-      if (cycle_count > 2000)
-        fail_now("timeout before writing all 16 outputs");
+      if (cycle_count > 20000000)
+        fail_now("timeout before completing all tile repeats");
     end
 endmodule
 
