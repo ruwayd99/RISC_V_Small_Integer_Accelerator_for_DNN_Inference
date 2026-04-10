@@ -220,13 +220,13 @@ module riscvsingle(input  logic        clk, reset,
   controller c(InstrE[6:0], InstrE[14:12], InstrE[30], Zero,
                ResultSrc, MemWrite, PCSrc,
                ALUSrc, RegWrite, Jump,
-               ImmSrc, ALUControl);
+         ImmSrc, ALUControl);
   datapath dp(clk, reset,
               ResultSrc, PCSrc,
               ALUSrc, RegWrite,
               ImmSrc, ALUControl,
               Zero, PC, Instr, InstrE,
-              ALU_MULResult, WriteData, ReadData);
+        ALU_MULResult, WriteData, ReadData);
 endmodule
 
 module controller(input  logic [6:0] op,
@@ -238,7 +238,7 @@ module controller(input  logic [6:0] op,
                   output logic       PCSrc, ALUSrc,
                   output logic       RegWrite, Jump,
                   output logic [1:0] ImmSrc,
-                  output logic [2:0] ALUControl);
+          output logic [2:0] ALUControl);
 
   logic [1:0] ALUOp;
   logic       Branch;
@@ -274,19 +274,7 @@ module maindec(input  logic [6:0] op,
       7'b1100011: controls = 11'b0_10_0_0_00_1_01_0; // beq
       7'b0010011: controls = 11'b1_00_1_0_00_0_10_0; // I-type ALU
       7'b1101111: controls = 11'b1_11_0_0_10_0_00_1; // jal
-      7'b0001011: begin // custom-0: mmatmul (differentiated by funct3)
-        case(funct3)
-          3'b010:  controls = 11'b0_xx_0_0_00_0_00_0; // mmatmul
-          default: controls = 11'bx_xx_x_x_xx_x_xx_x;
-        endcase
-      end
-      7'b0101011: begin // custom-1: mload, mstore (differentiated by funct3)
-        case(funct3)
-          3'b000:  controls = 11'b0_00_1_0_xx_0_00_0; // mload (I-type addr calc)
-          3'b010:  controls = 11'b0_01_1_1_xx_0_00_0; // mstore (S-type addr calc)
-          default: controls = 11'bx_xx_x_x_xx_x_xx_x;
-        endcase
-      end
+      7'b0001011: controls = 11'b1_00_0_0_11_0_00_0; // custom MAC
       default:    controls = 11'bx_xx_x_x_xx_x_xx_x; // non-implemented instruction
     endcase
 endmodule
@@ -335,15 +323,13 @@ module datapath(input  logic        clk, reset,
   logic [31:0] SrcA, SrcB, RD2, rd_current;
   logic [31:0] Result;
   logic [31:0] PCE, PCPlus4E;  // pipeline register outputs for PC
+  logic [31:0] MAC_result;
   logic [31:0] ALUResult;
   logic [31:0] MULResult;
   logic [6:0] op;
   logic [2:0] funct3;
   logic [6:0] funct7;
   logic is_mext;
-  logic do_mmatmul, do_mload, do_mstore;
-  logic [31:0] c_read_data;
-  logic [3:0]  c_idx;
 
   // decode fields for multiplier
   assign op = InstrE[6:0];
@@ -389,26 +375,10 @@ module datapath(input  logic        clk, reset,
   mux2 #(32)  alu_mulmux(ALUResult, MULResult, is_mext, ALU_MULResult); // sel for ALU vs multiplier result
   alu         alu(SrcA, SrcB, ALUControl, ALUResult, Zero);
   multiplier  mul(SrcA, SrcB, funct3[1:0], MULResult);
-  mux4 #(32)  resultmux(ALU_MULResult, ReadData, PCPlus4E, 32'b0, ResultSrc, Result);
+  mac_unit    macu(SrcA, SrcB, rd_current, MULResult, MAC_result);
+  mux4 #(32)  resultmux(ALU_MULResult, ReadData, PCPlus4E, MAC_result, ResultSrc, Result);
 
-  assign do_mmatmul = (op == 7'b0001011) && (funct3 == 3'b010);
-  assign do_mload    = (op == 7'b0101011) && (funct3 == 3'b000);
-  assign do_mstore   = (op == 7'b0101011) && (funct3 == 3'b010);
-  assign c_idx       = do_mstore ? InstrE[23:20] : InstrE[10:7];
-
-  outer_product outerProd(
-      .clk(clk), .reset(reset),
-      .do_mmatmul(do_mmatmul),
-      .do_mload(do_mload),
-      .do_mstore(do_mstore),
-      .c_idx(c_idx),
-      .rs1_data(SrcA),
-      .rs2_data(RD2),
-      .mem_read(ReadData),
-      .c_read_data(c_read_data)
-  );
-
-  assign WriteData = do_mstore ? c_read_data : RD2;
+  assign WriteData = RD2;
 endmodule
   
 
@@ -590,47 +560,13 @@ module multiplier(
     endcase
 endmodule
 
-module outer_product(
-    input  logic        clk, reset,
-    input  logic        do_mmatmul,
-    input  logic        do_mload,
-    input  logic        do_mstore,
-    input  logic [3:0]  c_idx,       // 4-bit index to select C[0] to C[15]
-    input  logic [31:0] rs1_data,    // A vector from main regfile (rs1)
-    input  logic [31:0] rs2_data,    // B vector from main regfile (rs2)
-    input  logic [31:0] mem_read,    // Data from dmem (used for mload)
-    output logic [31:0] c_read_data  // Data to dmem WriteData (used for mstore)
-);
+module mac_unit (input  logic [31:0] a, b, // a and b retained for interface consistency
+                 input  logic [31:0] accum,
+                 input  logic [31:0] mul_result,
+                 output logic [31:0] result);
+  logic [31:0] unused_ab;
 
-    // 16 individual 32-bit accumulators
-    logic signed [31:0] C [15:0];
+  assign unused_ab = a ^ b;
+  assign result = accum + mul_result;
 
-    // Unpack four 8-bit signed integers from 32-bit source registers
-    logic signed [7:0] A [3:0];
-    logic signed [7:0] B [3:0];
-
-    assign {A[3], A[2], A[1], A[0]} = rs1_data;
-    assign {B[3], B[2], B[1], B[0]} = rs2_data;
-
-    // Asynchronous read for mstore (routes selected C register to dmem)
-    assign c_read_data = C[c_idx];
-
-    // Synchronous write for mload, mmatmul, and mstore-clear
-    integer i, r, col;
-    always_ff @(posedge clk, posedge reset) begin
-        if (reset) begin
-            for (i = 0; i < 16; i = i + 1) C[i] <= 32'b0;
-        end else if (do_mload) begin
-            C[c_idx] <= mem_read;
-      end else if (do_mstore) begin
-        C[c_idx] <= 32'b0;
-        end else if (do_mmatmul) begin
-            // 16 parallel MAC operations (outer product update)
-            for (r = 0; r < 4; r = r + 1) begin
-                for (col = 0; col < 4; col = col + 1) begin
-                    C[(r*4) + col] <= C[(r*4) + col] + (A[r] * B[col]);
-                end
-            end
-        end
-    end
 endmodule

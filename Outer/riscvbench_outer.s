@@ -9,6 +9,24 @@
 # Expected matrix: C[0][0]=25, all others 0.
 
 main:
+        # Explicitly initialize all C accumulators from known-zero memory
+        .word 0x0C00002B      # mload  C[0],  192(x0)
+        .word 0x0C0000AB      # mload  C[1],  192(x0)
+        .word 0x0C00012B      # mload  C[2],  192(x0)
+        .word 0x0C0001AB      # mload  C[3],  192(x0)
+        .word 0x0C00022B      # mload  C[4],  192(x0)
+        .word 0x0C0002AB      # mload  C[5],  192(x0)
+        .word 0x0C00032B      # mload  C[6],  192(x0)
+        .word 0x0C0003AB      # mload  C[7],  192(x0)
+        .word 0x0C00042B      # mload  C[8],  192(x0)
+        .word 0x0C0004AB      # mload  C[9],  192(x0)
+        .word 0x0C00052B      # mload  C[10], 192(x0)
+        .word 0x0C0005AB      # mload  C[11], 192(x0)
+        .word 0x0C00062B      # mload  C[12], 192(x0)
+        .word 0x0C0006AB      # mload  C[13], 192(x0)
+        .word 0x0C00072B      # mload  C[14], 192(x0)
+        .word 0x0C0007AB      # mload  C[15], 192(x0)
+
         lw   x2, 160(x0)
         lw   x3, 176(x0)
         .word 0x0031200B      # mmatmul x2, x3

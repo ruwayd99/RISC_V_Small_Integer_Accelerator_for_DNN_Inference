@@ -1,5 +1,5 @@
-# riscvbench_scalar.s
-# Full 4x4 tile scalar benchmark using base ISA mul/add (IKJ order).
+# riscvbench_scalar_mac.s
+# Full 4x4 tile scalar benchmark using the new MAC instruction (IKJ order).
 #
 # Data memory layout (from benchdata.txt):
 #   A32  at 0x00, BT32 at 0x40
@@ -27,21 +27,21 @@ loop_k:
         lw   x11, 0(x6)
         addi x7, x4, 0
         lw   x12, 0(x7)
-        mul  x13, x11, x12
+        .word 0x00C58A0B      # mac x20, x11, x12
+
         addi x7, x7, 16
-        add  x20, x20, x13
         lw   x12, 0(x7)
-        mul  x13, x11, x12
+        .word 0x00C58A8B      # mac x21, x11, x12
+
         addi x7, x7, 16
-        add  x21, x21, x13
         lw   x12, 0(x7)
-        mul  x13, x11, x12
+        .word 0x00C58B0B      # mac x22, x11, x12
+
         addi x7, x7, 16
-        add  x22, x22, x13
         lw   x12, 0(x7)
-        mul  x13, x11, x12
+        .word 0x00C58B8B      # mac x23, x11, x12
+
         addi x6, x6, 4
-        add  x23, x23, x13
         addi x4, x4, 4
         addi x5, x5, -1
         beq  x5, x0, end_k
