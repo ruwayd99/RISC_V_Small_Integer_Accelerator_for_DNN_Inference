@@ -29,16 +29,13 @@ loop_k:
         lw   x12, 0(x7)
         .word 0x00C58A0B      # mac x20, x11, x12
 
-        addi x7, x7, 16
-        lw   x12, 0(x7)
+        lw   x12, 16(x7)
         .word 0x00C58A8B      # mac x21, x11, x12
 
-        addi x7, x7, 16
-        lw   x12, 0(x7)
+        lw   x12, 32(x7)
         .word 0x00C58B0B      # mac x22, x11, x12
 
-        addi x7, x7, 16
-        lw   x12, 0(x7)
+        lw   x12, 48(x7)
         .word 0x00C58B8B      # mac x23, x11, x12
 
         addi x6, x6, 4

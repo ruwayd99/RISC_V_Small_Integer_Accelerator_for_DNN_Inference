@@ -28,17 +28,14 @@ loop_k:
         addi x7, x4, 0
         lw   x12, 0(x7)
         mul  x13, x11, x12
-        addi x7, x7, 16
         add  x20, x20, x13
-        lw   x12, 0(x7)
+        lw   x12, 16(x7)
         mul  x13, x11, x12
-        addi x7, x7, 16
         add  x21, x21, x13
-        lw   x12, 0(x7)
+        lw   x12, 32(x7)
         mul  x13, x11, x12
-        addi x7, x7, 16
         add  x22, x22, x13
-        lw   x12, 0(x7)
+        lw   x12, 48(x7)
         mul  x13, x11, x12
         addi x6, x6, 4
         add  x23, x23, x13
