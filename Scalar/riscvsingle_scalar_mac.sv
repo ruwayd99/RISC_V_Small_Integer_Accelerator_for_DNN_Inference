@@ -542,22 +542,31 @@ module multiplier(
   input  logic [1:0]  mul_op,   // 00=mul, 01=mulh, 10=mulhsu, 11=mulhu
   output logic [31:0] result
 );
-  logic signed [63:0] product_ss;  // signed × signed
-  logic signed [63:0] product_su;  // signed × unsigned
-  logic        [63:0] product_uu;  // unsigned × unsigned
 
-  assign product_ss = $signed(a) * $signed(b);
-  assign product_uu = {32'b0, a} * {32'b0, b};      // zero-extend both
-  assign product_su = $signed(a) * $signed({1'b0, b}); // sign-extend a, zero-extend b
+  logic is_a_signed;
+  logic is_b_signed;
+  logic signed [32:0] a_ext;
+  logic signed [32:0] b_ext;
+  logic signed [65:0] full_product;
 
-  always_comb
-    case (mul_op)
-      2'b00: result = product_ss[31:0];   // mul  — lower 32 bits
-      2'b01: result = product_ss[63:32];  // mulh — upper 32 bits (signed×signed)
-      2'b10: result = product_su[63:32];  // mulhsu
-      2'b11: result = product_uu[63:32];  // mulhu
-      default: result = 32'bx;
-    endcase
+  assign is_a_signed = (mul_op == 2'b01) | (mul_op == 2'b10);
+
+  assign is_b_signed = (mul_op == 2'b01);                     
+
+  // Create the 33-bit operands. 
+  // If signed, duplicate the 31st bit. If unsigned, pad with 0.
+  assign a_ext = $signed({is_a_signed & a[31], a});
+  assign b_ext = $signed({is_b_signed & b[31], b});
+
+  assign full_product = a_ext * b_ext;
+
+  always_comb begin
+    if (mul_op == 2'b00) 
+      result = full_product[31:0];   // mul (lower 32)
+    else                 
+      result = full_product[63:32];  // mulh, mulhsu, mulhu (upper 32)
+  end
+
 endmodule
 
 module mac_unit (input  logic [31:0] a, b, // a and b retained for interface consistency

@@ -572,22 +572,31 @@ module multiplier(
   input  logic [1:0]  mul_op,   // 00=mul, 01=mulh, 10=mulhsu, 11=mulhu
   output logic [31:0] result
 );
-  logic signed [63:0] product_ss;  // signed × signed
-  logic signed [63:0] product_su;  // signed × unsigned
-  logic        [63:0] product_uu;  // unsigned × unsigned
 
-  assign product_ss = $signed(a) * $signed(b);
-  assign product_uu = {32'b0, a} * {32'b0, b};      // zero-extend both
-  assign product_su = $signed(a) * $signed({1'b0, b}); // sign-extend a, zero-extend b
+  logic is_a_signed;
+  logic is_b_signed;
+  logic signed [32:0] a_ext;
+  logic signed [32:0] b_ext;
+  logic signed [65:0] full_product;
 
-  always_comb
-    case (mul_op)
-      2'b00: result = product_ss[31:0];   // mul  — lower 32 bits
-      2'b01: result = product_ss[63:32];  // mulh — upper 32 bits (signed×signed)
-      2'b10: result = product_su[63:32];  // mulhsu
-      2'b11: result = product_uu[63:32];  // mulhu
-      default: result = 32'bx;
-    endcase
+  assign is_a_signed = (mul_op == 2'b01) | (mul_op == 2'b10);
+
+  assign is_b_signed = (mul_op == 2'b01);                     
+
+  // Create the 33-bit operands. 
+  // If signed, duplicate the 31st bit. If unsigned, pad with 0.
+  assign a_ext = $signed({is_a_signed & a[31], a});
+  assign b_ext = $signed({is_b_signed & b[31], b});
+
+  assign full_product = a_ext * b_ext;
+
+  always_comb begin
+    if (mul_op == 2'b00) 
+      result = full_product[31:0];   // mul (lower 32)
+    else                 
+      result = full_product[63:32];  // mulh, mulhsu, mulhu (upper 32)
+  end
+
 endmodule
 
 module outer_product(
@@ -615,22 +624,77 @@ module outer_product(
     // Asynchronous read for mstore (routes selected C register to dmem)
     assign c_read_data = C[c_idx];
 
+    // Sign-extend the 8-bit to 9-bit
+    logic signed [8:0] A_ext [3:0];
+    logic signed [8:0] B_ext [3:0];
+
+    always_comb begin
+        for (int i = 0; i < 4; i++) begin
+            A_ext[i] = A[i];
+            B_ext[i] = B[i];
+        end
+    end
+
+    // Pack the two 9-bits into 18-bits
+    logic signed [17:0] A_01, A_23;
+    logic signed [17:0] B_00, B_11, B_22, B_33;
+
+    assign A_01 = {A_ext[1], A_ext[0]};
+    assign A_23 = {A_ext[3], A_ext[2]};
+
+    assign B_00 = {B_ext[0], B_ext[0]};
+    assign B_11 = {B_ext[1], B_ext[1]};
+    assign B_22 = {B_ext[2], B_ext[2]};
+    assign B_33 = {B_ext[3], B_ext[3]};
+    
+    // 8 packed 18x18 multiplications gives two 9bx9b products
+    logic signed [35:0] packed_mul [7:0];
+
+    assign packed_mul[0] = A_01 * B_00; // A[0]*B[0] and A[1]*B[0]
+    assign packed_mul[1] = A_01 * B_11; // A[0]*B[1] and A[1]*B[1]
+    assign packed_mul[2] = A_01 * B_22; // A[0]*B[2] and A[1]*B[2]
+    assign packed_mul[3] = A_01 * B_33; // A[0]*B[3] and A[1]*B[3]
+
+    assign packed_mul[4] = A_23 * B_00; // A[2]*B[0] and A[3]*B[0]
+    assign packed_mul[5] = A_23 * B_11; // A[2]*B[1] and A[3]*B[1]
+    assign packed_mul[6] = A_23 * B_22; // A[2]*B[2] and A[3]*B[2]
+    assign packed_mul[7] = A_23 * B_33; // A[2]*B[3] and A[3]*B[3]
+
+
     // Synchronous write for mload, mmatmul, and mstore-clear
-    integer i, r, col;
     always_ff @(posedge clk, posedge reset) begin
         if (reset) begin
-            for (i = 0; i < 16; i = i + 1) C[i] <= 32'b0;
+          for (int i = 0; i < 16; i = i + 1) C[i] <= 32'b0;
         end else if (do_mload) begin
             C[c_idx] <= mem_read;
       end else if (do_mstore) begin
         C[c_idx] <= 32'b0;
         end else if (do_mmatmul) begin
-            // 16 parallel MAC operations (outer product update)
-            for (r = 0; r < 4; r = r + 1) begin
-                for (col = 0; col < 4; col = col + 1) begin
-                    C[(r*4) + col] <= C[(r*4) + col] + (A[r] * B[col]);
-                end
-            end
+            // Unpack the 9b
+            C[0]  <= C[0]  + $signed(packed_mul[0][8:0]);   // A[0]*B[0]
+            C[4]  <= C[4]  + $signed(packed_mul[0][26:18]);  // A[1]*B[0]
+            
+            C[1]  <= C[1]  + $signed(packed_mul[1][8:0]);   // A[0]*B[1]
+            C[5]  <= C[5]  + $signed(packed_mul[1][26:18]);  // A[1]*B[1]
+            
+            C[2]  <= C[2]  + $signed(packed_mul[2][8:0]);   // A[0]*B[2]
+            C[6]  <= C[6]  + $signed(packed_mul[2][26:18]);  // A[1]*B[2]
+            
+            C[3]  <= C[3]  + $signed(packed_mul[3][8:0]);   // A[0]*B[3]
+            C[7]  <= C[7]  + $signed(packed_mul[3][26:18]);  // A[1]*B[3]
+            
+            C[8]  <= C[8]  + $signed(packed_mul[4][8:0]);   // A[2]*B[0]
+            C[12] <= C[12] + $signed(packed_mul[4][26:18]);  // A[3]*B[0]
+            
+            C[9]  <= C[9]  + $signed(packed_mul[5][8:0]);   // A[2]*B[1]
+            C[13] <= C[13] + $signed(packed_mul[5][26:18]);  // A[3]*B[1]
+            
+            C[10] <= C[10] + $signed(packed_mul[6][8:0]);   // A[2]*B[2]
+            C[14] <= C[14] + $signed(packed_mul[6][26:18]);  // A[3]*B[2]
+            
+            C[11] <= C[11] + $signed(packed_mul[7][8:0]);   // A[2]*B[3]
+            C[15] <= C[15] + $signed(packed_mul[7][26:18]);  // A[3]*B[3]
+
         end
     end
 endmodule
